@@ -1,0 +1,253 @@
+<?php
+
+namespace App\Filament\Resources;
+
+use App\Enums\Budget;
+use App\Enums\ProspectSource;
+use App\Enums\ProspectStatus;
+use App\Enums\ProspectType;
+use App\Filament\Resources\ProspectResource\Pages;
+use App\Models\Prospect;
+use Filament\Forms;
+use Filament\Forms\Form;
+use Filament\Resources\Resource;
+use Filament\Tables;
+use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
+
+class ProspectResource extends Resource
+{
+    protected static ?string $model = Prospect::class;
+
+    protected static ?string $navigationIcon = 'heroicon-o-user-group';
+
+    protected static ?string $navigationLabel = 'Prospects';
+
+    protected static ?string $modelLabel = 'Prospect';
+
+    protected static ?string $pluralModelLabel = 'Prospects';
+
+    public static function form(Form $form): Form
+    {
+        return $form
+            ->schema([
+                Forms\Components\Section::make('Informations')
+                    ->description('Données de contact du prospect')
+                    ->schema([
+                        Forms\Components\TextInput::make('company_name')
+                            ->label('Entreprise / Nom')
+                            ->required()
+                            ->maxLength(255)
+                            ->columnSpan(2),
+
+                        Forms\Components\TextInput::make('contact_name')
+                            ->label('Contact')
+                            ->maxLength(255),
+
+                        Forms\Components\TextInput::make('email')
+                            ->label('Email')
+                            ->email()
+                            ->maxLength(255),
+
+                        Forms\Components\TextInput::make('phone')
+                            ->label('Téléphone')
+                            ->tel()
+                            ->maxLength(255),
+
+                        Forms\Components\TextInput::make('website')
+                            ->label('Site web')
+                            ->url()
+                            ->maxLength(255),
+                    ])
+                    ->columns(2),
+
+                Forms\Components\Section::make('Classification')
+                    ->description('Catégorisation et statut du prospect')
+                    ->schema([
+                        Forms\Components\Select::make('status')
+                            ->label('Statut')
+                            ->options(collect(ProspectStatus::cases())->mapWithKeys(fn($status) => [$status->value => $status->label()]))
+                            ->default(ProspectStatus::IDENTIFIED->value)
+                            ->required(),
+
+                        Forms\Components\Select::make('source')
+                            ->label('Source')
+                            ->options(collect(ProspectSource::cases())->mapWithKeys(fn($source) => [$source->value => $source->label()]))
+                            ->default(ProspectSource::OTHER->value)
+                            ->required(),
+
+                        Forms\Components\Select::make('type')
+                            ->label('Type')
+                            ->options(collect(ProspectType::cases())->mapWithKeys(fn($type) => [$type->value => $type->label()]))
+                            ->default(ProspectType::OTHER->value),
+
+                        Forms\Components\Select::make('budget')
+                            ->label('Budget estimé')
+                            ->options(collect(Budget::cases())->mapWithKeys(fn($budget) => [$budget->value => $budget->label()]))
+                            ->default(Budget::UNKNOWN->value),
+
+                        Forms\Components\Select::make('urgency')
+                            ->label('Urgence')
+                            ->options([
+                                1 => '1 - Très faible',
+                                2 => '2 - Faible',
+                                3 => '3 - Moyenne',
+                                4 => '4 - Haute',
+                                5 => '5 - Très haute',
+                            ])
+                            ->default(3),
+                    ])
+                    ->columns(3),
+
+                Forms\Components\Section::make('Contexte')
+                    ->schema([
+                        Forms\Components\Textarea::make('main_problem')
+                            ->label('Problème principal')
+                            ->placeholder('Quel est le problème ou besoin identifié ?')
+                            ->rows(3)
+                            ->columnSpanFull(),
+
+                        Forms\Components\Textarea::make('notes')
+                            ->label('Notes')
+                            ->placeholder('Observations, historique des échanges...')
+                            ->rows(4)
+                            ->columnSpanFull(),
+                    ]),
+
+                Forms\Components\Section::make('Suivi')
+                    ->description('Dates de relance')
+                    ->schema([
+                        Forms\Components\DateTimePicker::make('last_action_at')
+                            ->label('Dernière action')
+                            ->displayFormat('d/m/Y H:i'),
+
+                        Forms\Components\DateTimePicker::make('next_action_at')
+                            ->label('Prochaine action')
+                            ->displayFormat('d/m/Y H:i'),
+                    ])
+                    ->columns(2),
+            ]);
+    }
+
+    public static function table(Table $table): Table
+    {
+        return $table
+            ->columns([
+                Tables\Columns\TextColumn::make('company_name')
+                    ->label('Entreprise')
+                    ->searchable()
+                    ->sortable()
+                    ->weight('bold'),
+
+                Tables\Columns\TextColumn::make('contact_name')
+                    ->label('Contact')
+                    ->searchable()
+                    ->toggleable(),
+
+                Tables\Columns\TextColumn::make('status')
+                    ->label('Statut')
+                    ->badge()
+                    ->formatStateUsing(fn(ProspectStatus $state): string => $state->label())
+                    ->color(fn(ProspectStatus $state): string => $state->color())
+                    ->sortable(),
+
+                Tables\Columns\TextColumn::make('source')
+                    ->label('Source')
+                    ->formatStateUsing(fn(ProspectSource $state): string => $state->label())
+                    ->toggleable(),
+
+                Tables\Columns\TextColumn::make('type')
+                    ->label('Type')
+                    ->formatStateUsing(fn(ProspectType $state): string => $state->label())
+                    ->toggleable(isToggledHiddenByDefault: true),
+
+                Tables\Columns\TextColumn::make('budget')
+                    ->label('Budget')
+                    ->badge()
+                    ->formatStateUsing(fn(Budget $state): string => $state->label())
+                    ->color(fn(Budget $state): string => $state->color())
+                    ->toggleable(),
+
+                Tables\Columns\TextColumn::make('next_action_at')
+                    ->label('Prochaine action')
+                    ->dateTime('d/m/Y')
+                    ->sortable()
+                    ->color(fn(Prospect $record): string => $record->isOverdue() ? 'danger' : 'gray'),
+
+                Tables\Columns\TextColumn::make('created_at')
+                    ->label('Créé le')
+                    ->dateTime('d/m/Y')
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
+            ])
+            ->defaultSort('created_at', 'desc')
+            ->filters([
+                Tables\Filters\SelectFilter::make('status')
+                    ->label('Statut')
+                    ->options(collect(ProspectStatus::cases())->mapWithKeys(fn($status) => [$status->value => $status->label()])),
+
+                Tables\Filters\SelectFilter::make('source')
+                    ->label('Source')
+                    ->options(collect(ProspectSource::cases())->mapWithKeys(fn($source) => [$source->value => $source->label()])),
+
+                Tables\Filters\Filter::make('needs_action')
+                    ->label('À relancer')
+                    ->query(fn(Builder $query): Builder => $query->needsAction()),
+
+                Tables\Filters\Filter::make('active')
+                    ->label('Actifs uniquement')
+                    ->query(fn(Builder $query): Builder => $query->active())
+                    ->default(),
+            ])
+            ->actions([
+                Tables\Actions\Action::make('qualify')
+                    ->label('Qualifier')
+                    ->icon('heroicon-o-check-circle')
+                    ->color('success')
+                    ->visible(fn(Prospect $record): bool => $record->status === ProspectStatus::IDENTIFIED)
+                    ->action(fn(Prospect $record) => $record->update([
+                        'status' => ProspectStatus::QUALIFIED,
+                        'last_action_at' => now(),
+                    ])),
+
+                Tables\Actions\Action::make('mark_lost')
+                    ->label('Sans suite')
+                    ->icon('heroicon-o-x-circle')
+                    ->color('danger')
+                    ->visible(fn(Prospect $record): bool => !in_array($record->status, [ProspectStatus::WON, ProspectStatus::LOST]))
+                    ->requiresConfirmation()
+                    ->action(fn(Prospect $record) => $record->update([
+                        'status' => ProspectStatus::LOST,
+                        'last_action_at' => now(),
+                    ])),
+
+                Tables\Actions\EditAction::make(),
+            ])
+            ->bulkActions([
+                Tables\Actions\BulkActionGroup::make([
+                    Tables\Actions\DeleteBulkAction::make(),
+                ]),
+            ]);
+    }
+
+    public static function getRelations(): array
+    {
+        return [
+            //
+        ];
+    }
+
+    public static function getPages(): array
+    {
+        return [
+            'index' => Pages\ListProspects::route('/'),
+            'create' => Pages\CreateProspect::route('/create'),
+            'edit' => Pages\EditProspect::route('/{record}/edit'),
+        ];
+    }
+
+    public static function getNavigationBadge(): ?string
+    {
+        return static::getModel()::active()->count();
+    }
+}
