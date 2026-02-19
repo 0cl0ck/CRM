@@ -28,6 +28,28 @@ class Prospect extends Model
         'notes',
         'last_action_at',
         'next_action_at',
+        // Business data (Pappers)
+        'siren',
+        'siret',
+        'naf_code',
+        'naf_label',
+        'legal_form',
+        'capital',
+        'revenue',
+        'employees',
+        'creation_date',
+        'city',
+        'director_name',
+        // Lighthouse scores
+        'lh_performance',
+        'lh_accessibility',
+        'lh_best_practices',
+        'lh_seo',
+        'lh_fcp',
+        'lh_lcp',
+        'lh_tbt',
+        'lh_cls',
+        'lh_report_date',
     ];
 
     protected $casts = [
@@ -38,6 +60,19 @@ class Prospect extends Model
         'urgency' => 'integer',
         'last_action_at' => 'datetime',
         'next_action_at' => 'datetime',
+        'capital' => 'integer',
+        'revenue' => 'integer',
+        'employees' => 'integer',
+        'creation_date' => 'date',
+        'lh_performance' => 'integer',
+        'lh_accessibility' => 'integer',
+        'lh_best_practices' => 'integer',
+        'lh_seo' => 'integer',
+        'lh_fcp' => 'float',
+        'lh_lcp' => 'float',
+        'lh_tbt' => 'float',
+        'lh_cls' => 'float',
+        'lh_report_date' => 'date',
     ];
 
     /**

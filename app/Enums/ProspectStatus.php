@@ -2,8 +2,12 @@
 
 namespace App\Enums;
 
+use Mokhosh\FilamentKanban\Concerns\IsKanbanStatus;
+
 enum ProspectStatus: string
 {
+    use IsKanbanStatus;
+
     case IDENTIFIED = 'identified';
     case QUALIFIED = 'qualified';
     case CONTACTED = 'contacted';
@@ -11,6 +15,14 @@ enum ProspectStatus: string
     case PROPOSAL_SENT = 'proposal_sent';
     case WON = 'won';
     case LOST = 'lost';
+
+    /**
+     * Label used by Kanban column headers
+     */
+    public function getTitle(): string
+    {
+        return $this->label();
+    }
 
     public function label(): string
     {
@@ -20,8 +32,8 @@ enum ProspectStatus: string
             self::CONTACTED => 'Contacté',
             self::MEETING_SET => 'RDV fixé',
             self::PROPOSAL_SENT => 'Proposition envoyée',
-            self::WON => 'Gagné',
-            self::LOST => 'Sans suite',
+            self::WON => 'Closé',
+            self::LOST => 'Supprimé',
         };
     }
 

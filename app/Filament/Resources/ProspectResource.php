@@ -27,10 +27,34 @@ class ProspectResource extends Resource
 
     protected static ?string $pluralModelLabel = 'Prospects';
 
+    protected static ?int $navigationSort = 2;
+
     public static function form(Form $form): Form
     {
         return $form
             ->schema([
+                // ─── Import auto ───────────────────────────────────
+                Forms\Components\Section::make('Import automatique')
+                    ->description('Déposez un extrait Pappers (PDF) et/ou un rapport Lighthouse (JSON), puis cliquez sur "Analyser les fichiers" dans la barre d\'actions.')
+                    ->schema([
+                        Forms\Components\FileUpload::make('pappers_pdf')
+                            ->label('Extrait Pappers (PDF)')
+                            ->acceptedFileTypes(['application/pdf'])
+                            ->disk('local')
+                            ->directory('prospect-imports')
+                            ->maxSize(5120),
+
+                        Forms\Components\FileUpload::make('lighthouse_json')
+                            ->label('Rapport Lighthouse (JSON)')
+                            ->acceptedFileTypes(['application/json'])
+                            ->disk('local')
+                            ->directory('prospect-imports')
+                            ->maxSize(10240),
+                    ])
+                    ->columns(2)
+                    ->collapsible(),
+
+                // ─── Informations ──────────────────────────────────
                 Forms\Components\Section::make('Informations')
                     ->description('Données de contact du prospect')
                     ->schema([
@@ -61,6 +85,61 @@ class ProspectResource extends Resource
                     ])
                     ->columns(2),
 
+                // ─── Données Entreprise ─────────────────────────────
+                Forms\Components\Section::make('Données Entreprise')
+                    ->description('Informations extraites de l\'extrait Pappers')
+                    ->schema([
+                        Forms\Components\TextInput::make('siren')
+                            ->label('SIREN')
+                            ->maxLength(9),
+
+                        Forms\Components\TextInput::make('siret')
+                            ->label('SIRET')
+                            ->maxLength(14),
+
+                        Forms\Components\TextInput::make('naf_code')
+                            ->label('Code NAF')
+                            ->maxLength(10),
+
+                        Forms\Components\TextInput::make('naf_label')
+                            ->label('Activité (libellé NAF)')
+                            ->maxLength(255),
+
+                        Forms\Components\TextInput::make('legal_form')
+                            ->label('Forme juridique')
+                            ->maxLength(255),
+
+                        Forms\Components\TextInput::make('capital')
+                            ->label('Capital social (€)')
+                            ->numeric()
+                            ->suffix('€'),
+
+                        Forms\Components\TextInput::make('revenue')
+                            ->label('Chiffre d\'affaires (€)')
+                            ->numeric()
+                            ->suffix('€'),
+
+                        Forms\Components\TextInput::make('employees')
+                            ->label('Effectif')
+                            ->numeric(),
+
+                        Forms\Components\DatePicker::make('creation_date')
+                            ->label('Date de création')
+                            ->displayFormat('d/m/Y'),
+
+                        Forms\Components\TextInput::make('city')
+                            ->label('Ville')
+                            ->maxLength(255),
+
+                        Forms\Components\TextInput::make('director_name')
+                            ->label('Dirigeant')
+                            ->maxLength(255)
+                            ->columnSpan(2),
+                    ])
+                    ->columns(3)
+                    ->collapsible(),
+
+                // ─── Classification ────────────────────────────────
                 Forms\Components\Section::make('Classification')
                     ->description('Catégorisation et statut du prospect')
                     ->schema([
@@ -99,6 +178,64 @@ class ProspectResource extends Resource
                     ])
                     ->columns(3),
 
+                // ─── Diagnostic Web (Lighthouse) ───────────────────
+                Forms\Components\Section::make('Diagnostic Web (Lighthouse)')
+                    ->description('Scores extraits du rapport Lighthouse')
+                    ->schema([
+                        Forms\Components\TextInput::make('lh_performance')
+                            ->label('Performance')
+                            ->numeric()
+                            ->suffix('/100')
+                            ->extraAttributes(fn($state) => [
+                                'class' => match (true) {
+                                    $state >= 90 => 'text-green-600',
+                                    $state >= 50 => 'text-orange-500',
+                                    default => 'text-red-600',
+                                }
+                            ]),
+
+                        Forms\Components\TextInput::make('lh_accessibility')
+                            ->label('Accessibilité')
+                            ->numeric()
+                            ->suffix('/100'),
+
+                        Forms\Components\TextInput::make('lh_best_practices')
+                            ->label('Bonnes pratiques')
+                            ->numeric()
+                            ->suffix('/100'),
+
+                        Forms\Components\TextInput::make('lh_seo')
+                            ->label('SEO')
+                            ->numeric()
+                            ->suffix('/100'),
+
+                        Forms\Components\TextInput::make('lh_fcp')
+                            ->label('FCP (First Contentful Paint)')
+                            ->numeric()
+                            ->suffix('s'),
+
+                        Forms\Components\TextInput::make('lh_lcp')
+                            ->label('LCP (Largest Contentful Paint)')
+                            ->numeric()
+                            ->suffix('s'),
+
+                        Forms\Components\TextInput::make('lh_tbt')
+                            ->label('TBT (Total Blocking Time)')
+                            ->numeric()
+                            ->suffix('ms'),
+
+                        Forms\Components\TextInput::make('lh_cls')
+                            ->label('CLS (Cumulative Layout Shift)')
+                            ->numeric(),
+
+                        Forms\Components\DatePicker::make('lh_report_date')
+                            ->label('Date du rapport')
+                            ->displayFormat('d/m/Y'),
+                    ])
+                    ->columns(4)
+                    ->collapsible(),
+
+                // ─── Contexte ──────────────────────────────────────
                 Forms\Components\Section::make('Contexte')
                     ->schema([
                         Forms\Components\Textarea::make('main_problem')
@@ -114,6 +251,7 @@ class ProspectResource extends Resource
                             ->columnSpanFull(),
                     ]),
 
+                // ─── Suivi ─────────────────────────────────────────
                 Forms\Components\Section::make('Suivi')
                     ->description('Dates de relance')
                     ->schema([
@@ -151,6 +289,30 @@ class ProspectResource extends Resource
                     ->color(fn(ProspectStatus $state): string => $state->color())
                     ->sortable(),
 
+                Tables\Columns\TextColumn::make('revenue')
+                    ->label('CA')
+                    ->money('EUR', locale: 'fr')
+                    ->sortable()
+                    ->toggleable(),
+
+                Tables\Columns\TextColumn::make('employees')
+                    ->label('Effectif')
+                    ->sortable()
+                    ->toggleable(),
+
+                Tables\Columns\TextColumn::make('lh_performance')
+                    ->label('Perf. LH')
+                    ->badge()
+                    ->formatStateUsing(fn($state): string => $state ? $state . '/100' : '—')
+                    ->color(fn($state): string => match (true) {
+                        !$state => 'gray',
+                        $state >= 90 => 'success',
+                        $state >= 50 => 'warning',
+                        default => 'danger',
+                    })
+                    ->sortable()
+                    ->toggleable(),
+
                 Tables\Columns\TextColumn::make('source')
                     ->label('Source')
                     ->formatStateUsing(fn(ProspectSource $state): string => $state->label())
@@ -167,6 +329,11 @@ class ProspectResource extends Resource
                     ->formatStateUsing(fn(Budget $state): string => $state->label())
                     ->color(fn(Budget $state): string => $state->color())
                     ->toggleable(),
+
+                Tables\Columns\TextColumn::make('city')
+                    ->label('Ville')
+                    ->searchable()
+                    ->toggleable(isToggledHiddenByDefault: true),
 
                 Tables\Columns\TextColumn::make('next_action_at')
                     ->label('Prochaine action')
