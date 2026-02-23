@@ -123,4 +123,15 @@ return [
         'store' => env('APP_MAINTENANCE_STORE', 'database'),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Deploy Webhook Secret
+    |--------------------------------------------------------------------------
+    |
+    | Secret used to verify GitHub webhook signatures for auto-deployment.
+    |
+    */
+
+    'deploy_secret' => env('DEPLOY_SECRET'),
+
 ];
