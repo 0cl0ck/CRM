@@ -1,17 +1,16 @@
 # CRM - Caddy Configuration
-# For IP-only access (no domain/SSL)
 
 :80 {
     root * /var/www/crm/public
 
-    # PHP-FPM
+    # Encode responses
+    encode gzip
+
+    # PHP-FPM (includes try_files internally for Laravel routing)
     php_fastcgi unix//run/php/php8.2-fpm.sock
 
     # Static files
     file_server
-
-    # Laravel routing
-    try_files {path} {path}/ /index.php?{query}
 
     # Security headers
     header {
