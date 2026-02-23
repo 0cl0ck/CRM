@@ -9,130 +9,188 @@ class ParsePappersService
     /**
      * Parse a Pappers PDF extract and return structured business data.
      *
+     * Pappers extracts use a tab-delimited format: "Label\tValue"
+     *
      * @param string $filePath Absolute path to the PDF file
      * @return array Associative array ready to fill Prospect model fields
      */
     public function parse(string $filePath): array
     {
-        if (!class_exists(\Smalot\PdfParser\Parser::class)) {
-            throw new \RuntimeException('smalot/pdfparser n\'est pas installé. Lancez : composer require smalot/pdfparser');
-        }
-
-        $parser = new \Smalot\PdfParser\Parser();
+        $parser = new Parser();
         $pdf = $parser->parseFile($filePath);
         $text = $pdf->getText();
 
-        // Normalize whitespace
+        // Normalize line endings
         $text = preg_replace('/\r\n/', "\n", $text);
+
+        // Build a key-value map from tab-separated lines
+        $kvMap = $this->buildKeyValueMap($text);
 
         $result = [];
 
-        // Raison sociale / Dénomination
-        $result['company_name'] = $this->extract($text, '/(?:D[ée]nomination|Raison sociale)\s*[:\-]?\s*(.+)/i');
+        // --- Dénomination / Raison sociale ---
+        $result['company_name'] = $kvMap['Dénomination ou raison sociale']
+            ?? $kvMap['Dénomination']
+            ?? $kvMap['Raison sociale']
+            ?? null;
 
-        // SIREN (9 digits)
-        if (preg_match('/(?:SIREN|N°\s*SIREN)\s*[:\-]?\s*(\d[\d\s]{7,10}\d)/i', $text, $m)) {
+        // --- SIREN (from RCS number: "418 199 618 R.C.S. Dunkerque") ---
+        $rcs = $kvMap['Immatriculation au RCS, numéro'] ?? $kvMap['Numéro RCS'] ?? null;
+        if ($rcs && preg_match('/(\d[\d\s]{7,10}\d)\s*R\.?C\.?S/i', $rcs, $m)) {
             $result['siren'] = preg_replace('/\s/', '', $m[1]);
         }
 
-        // SIRET (14 digits)
-        if (preg_match('/(?:SIRET|N°\s*SIRET)\s*[:\-]?\s*(\d[\d\s]{12,16}\d)/i', $text, $m)) {
-            $result['siret'] = preg_replace('/\s/', '', $m[1]);
+        // --- Direct SIREN/SIRET if present ---
+        if (isset($kvMap['SIREN'])) {
+            $result['siren'] = preg_replace('/\s/', '', $kvMap['SIREN']);
+        }
+        if (isset($kvMap['SIRET'])) {
+            $result['siret'] = preg_replace('/\s/', '', $kvMap['SIRET']);
         }
 
-        // Code NAF / APE
-        if (preg_match('/(?:Code\s*(?:NAF|APE)|NAF|APE)\s*[:\-]?\s*(\d{2}\.?\d{2}[A-Z])/i', $text, $m)) {
+        // --- Code NAF / APE ---
+        $nafField = $kvMap['Code NAF'] ?? $kvMap['Code APE'] ?? $kvMap['NAF'] ?? null;
+        if ($nafField && preg_match('/(\d{2}\.?\d{2}[A-Z])/i', $nafField, $m)) {
             $result['naf_code'] = $m[1];
         }
 
-        // NAF label (activité principale)
-        $result['naf_label'] = $this->extract($text, '/(?:Activit[ée]\s*(?:principale)?|Libell[ée]\s*(?:NAF|APE))\s*[:\-]?\s*(.+)/i');
+        // --- Activité principale (from "Activités principales" or "Activité(s) exercée(s)") ---
+        $activite = $kvMap['Activités principales'] ?? $kvMap['Activité(s) exercée(s)'] ?? null;
+        if ($activite) {
+            $result['naf_label'] = $this->sanitizeUtf8($activite);
+        }
 
-        // Forme juridique
-        $result['legal_form'] = $this->extract($text, '/(?:Forme\s*juridique|Forme\s*l[ée]gale|Statut\s*juridique)\s*[:\-]?\s*(.+)/i');
+        // --- Forme juridique ---
+        $result['legal_form'] = $kvMap['Forme juridique'] ?? null;
 
-        // Capital social
-        if (preg_match('/(?:Capital\s*(?:social)?)\s*[:\-]?\s*([\d\s.,]+)\s*(?:€|EUR|euros?)/i', $text, $m)) {
+        // --- Capital social (e.g. "8 000,00 Euros") ---
+        $capitalStr = $kvMap['Capital social'] ?? null;
+        if ($capitalStr && preg_match('/([\d\s.,]+)\s*(?:€|EUR|Euros?)/i', $capitalStr, $m)) {
             $result['capital'] = $this->parseNumber($m[1]);
         }
 
-        // Chiffre d'affaires (last available)
-        if (preg_match_all('/(?:Chiffre\s*d\'?affaires?|CA)\s*[:\-]?\s*([\d\s.,]+)\s*(?:€|EUR|euros?|k€|K€)/i', $text, $m)) {
-            $last = end($m[1]);
-            $multiplier = 1;
-            // Check if the matched text contains k€ indicator
-            $lastFullMatch = end($m[0]);
-            if (preg_match('/k€|K€/i', $lastFullMatch)) {
-                $multiplier = 1000;
-            }
-            $result['revenue'] = $this->parseNumber($last) * $multiplier;
-        }
-
-        // Effectif
-        if (preg_match('/(?:Effectif|Nombre\s*(?:de\s*)?salari[ée]s?|Tranche\s*d\'?effectif)\s*[:\-]?\s*(\d+)/i', $text, $m)) {
-            $result['employees'] = (int) $m[1];
-        } elseif (preg_match('/(\d+)\s*(?:salari[ée]s?|employ[ée]s?)/i', $text, $m)) {
-            $result['employees'] = (int) $m[1];
-        }
-
-        // Date de création
-        if (preg_match('/(?:Date\s*(?:de\s*)?(?:cr[ée]ation|immatriculation|d[ée]but\s*d\'?activit[ée]))\s*[:\-]?\s*(\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4})/i', $text, $m)) {
-            try {
-                $result['creation_date'] = \Carbon\Carbon::createFromFormat(
-                    str_contains($m[1], '/') ? 'd/m/Y' : 'd-m-Y',
-                    $m[1]
-                )->toDateString();
-            } catch (\Exception) {
-                // Try other format
-                try {
-                    $result['creation_date'] = \Carbon\Carbon::parse($m[1])->toDateString();
-                } catch (\Exception) {
-                    // ignore
-                }
-            }
-        }
-
-        // Ville (from address)
-        if (preg_match('/(?:Adresse|Si[èe]ge\s*social)\s*[:\-]?\s*.*?(\d{5})\s+([A-ZÀ-Ü][A-ZÀ-Ü\s\-]+)/i', $text, $m)) {
+        // --- Adresse → extract city from postal code pattern ---
+        $address = $kvMap['Adresse du siège'] ?? $kvMap['Adresse'] ?? $kvMap['Siège social'] ?? null;
+        if ($address && preg_match('/(\d{5})\s+([A-ZÀ-Ü][A-ZÀ-Ü\s\-]+)/i', $address, $m)) {
             $result['city'] = trim($m[2]);
         }
 
-        // Dirigeant
-        $result['director_name'] = $this->extract($text, '/(?:Dirigeant|G[ée]rant|Pr[ée]sident|Repr[ée]sentant\s*l[ée]gal)\s*[:\-]?\s*(?:M\.|Mme|Mr\.?)?\s*(.+)/i');
+        // --- Date d'immatriculation → creation_date ---
+        $dateStr = $kvMap["Date d'immatriculation"]
+            ?? $kvMap['Date de commencement d\'activité']
+            ?? null;
+        if ($dateStr) {
+            $result['creation_date'] = $this->parseDate($dateStr);
+        }
 
-        // Contact name = director name by default
-        if (!empty($result['director_name'])) {
+        // --- Dirigeant (from "Nom, prénoms" field) ---
+        $directorName = $kvMap['Nom, prénoms'] ?? null;
+        if ($directorName) {
+            $result['director_name'] = $this->sanitizeUtf8($directorName);
             $result['contact_name'] = $result['director_name'];
         }
 
-        // Filter out null/empty values
+        // --- Effectif ---
+        $effectif = $kvMap['Effectif'] ?? $kvMap['Nombre de salariés'] ?? null;
+        if ($effectif && preg_match('/(\d+)/', $effectif, $m)) {
+            $result['employees'] = (int) $m[1];
+        }
+
+        // --- Chiffre d'affaires ---
+        $ca = $kvMap["Chiffre d'affaires"] ?? $kvMap['CA'] ?? null;
+        if ($ca && preg_match('/([\d\s.,]+)\s*(?:€|EUR|Euros?|k€|K€)/i', $ca, $m)) {
+            $multiplier = preg_match('/k€|K€/i', $ca) ? 1000 : 1;
+            $result['revenue'] = $this->parseNumber($m[1]) * $multiplier;
+        }
+
+        // Sanitize all strings and filter empty values
+        $result = array_map(function ($v) {
+            return is_string($v) ? $this->sanitizeUtf8($v) : $v;
+        }, $result);
+
         return array_filter($result, fn($v) => $v !== null && $v !== '' && $v !== 0);
     }
 
     /**
-     * Extract a value using a regex pattern.
+     * Build a key-value map from tab-delimited PDF text.
+     *
+     * Handles multi-line values (continuation lines without a tab).
      */
-    private function extract(string $text, string $pattern): ?string
+    private function buildKeyValueMap(string $text): array
     {
-        if (preg_match($pattern, $text, $m)) {
-            return trim($m[1]);
+        $map = [];
+        $lines = explode("\n", $text);
+        $lastKey = null;
+
+        foreach ($lines as $line) {
+            $line = trim($line);
+            if (empty($line)) {
+                continue;
+            }
+
+            // Tab-separated: "Label\tValue"
+            if (str_contains($line, "\t")) {
+                $parts = explode("\t", $line, 2);
+                $key = trim($parts[0]);
+                $value = trim($parts[1] ?? '');
+
+                if (!empty($key) && !empty($value)) {
+                    $map[$key] = $value;
+                    $lastKey = $key;
+                }
+            } elseif ($lastKey && isset($map[$lastKey])) {
+                // Continuation of previous value (multi-line)
+                $map[$lastKey] .= ' ' . $line;
+            }
         }
 
-        return null;
+        return $map;
     }
 
     /**
-     * Parse a French-formatted number (spaces, commas, dots) to int.
+     * Parse a French-formatted number to int.
      */
     private function parseNumber(string $value): int
     {
-        // Remove spaces
         $value = preg_replace('/\s/', '', $value);
-        // Handle French formatting: 1.234.567,89 → 1234567
-        // or 1 234 567 → 1234567
         $value = str_replace('.', '', $value);
         $value = str_replace(',', '.', $value);
-
         return (int) round((float) $value);
+    }
+
+    /**
+     * Parse a French date string to Y-m-d format.
+     */
+    private function parseDate(string $dateStr): ?string
+    {
+        $dateStr = trim($dateStr);
+
+        // Try dd/mm/yyyy or dd-mm-yyyy
+        if (preg_match('|(\d{1,2})[/\-](\d{1,2})[/\-](\d{2,4})|', $dateStr, $m)) {
+            try {
+                $format = strlen($m[3]) === 4 ? 'd/m/Y' : 'd/m/y';
+                $normalized = $m[1] . '/' . $m[2] . '/' . $m[3];
+                return \Carbon\Carbon::createFromFormat($format, $normalized)->toDateString();
+            } catch (\Exception) {
+                // fall through
+            }
+        }
+
+        // Try Carbon::parse as fallback
+        try {
+            return \Carbon\Carbon::parse($dateStr)->toDateString();
+        } catch (\Exception) {
+            return null;
+        }
+    }
+
+    /**
+     * Sanitize a string to valid UTF-8.
+     */
+    private function sanitizeUtf8(string $value): string
+    {
+        $value = mb_convert_encoding($value, 'UTF-8', 'UTF-8');
+        $value = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F]/', '', $value);
+        return trim($value);
     }
 }

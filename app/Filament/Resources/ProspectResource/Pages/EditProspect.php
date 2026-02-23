@@ -29,32 +29,10 @@ class EditProspect extends EditRecord
                 ->icon('heroicon-o-sparkles')
                 ->color('primary')
                 ->action(function () {
-                    $data = $this->data;
+                    $rawData = $this->data;
                     $parsedFields = [];
 
-                    $resolvePath = function ($fileState): ?string {
-                        if (!$fileState)
-                            return null;
-                        while (is_array($fileState)) {
-                            $fileState = reset($fileState);
-                        }
-                        if ($fileState instanceof TemporaryUploadedFile) {
-                            return $fileState->getRealPath();
-                        }
-                        if (is_string($fileState) && !empty($fileState)) {
-                            $path = storage_path('app/prospect-imports/' . $fileState);
-                            if (file_exists($path))
-                                return $path;
-                            foreach (['private/livewire-tmp/', 'livewire-tmp/'] as $dir) {
-                                $path = storage_path('app/' . $dir . $fileState);
-                                if (file_exists($path))
-                                    return $path;
-                            }
-                        }
-                        return null;
-                    };
-
-                    $pappersPath = $resolvePath($data['pappers_pdf'] ?? null);
+                    $pappersPath = $this->resolveUploadedFilePath($rawData['pappers_pdf'] ?? null);
                     if ($pappersPath) {
                         try {
                             $parsedFields = array_merge($parsedFields, (new ParsePappersService())->parse($pappersPath));
@@ -63,7 +41,7 @@ class EditProspect extends EditRecord
                         }
                     }
 
-                    $lhPath = $resolvePath($data['lighthouse_json'] ?? null);
+                    $lhPath = $this->resolveUploadedFilePath($rawData['lighthouse_json'] ?? null);
                     if ($lhPath) {
                         try {
                             $parsedFields = array_merge($parsedFields, (new ParseLighthouseService())->parse($lhPath));
@@ -74,6 +52,9 @@ class EditProspect extends EditRecord
 
                     if (count($parsedFields) > 0) {
                         foreach ($parsedFields as $field => $value) {
+                            if (is_string($value)) {
+                                $value = mb_convert_encoding($value, 'UTF-8', 'UTF-8');
+                            }
                             $this->data[$field] = $value;
                         }
                         Notification::make()->title('Analyse terminée')->body(count($parsedFields) . ' champs pré-remplis')->success()->send();
@@ -89,5 +70,47 @@ class EditProspect extends EditRecord
     protected function getRedirectUrl(): string
     {
         return $this->getResource()::getUrl('index');
+    }
+
+    /**
+     * Resolve a Livewire FileUpload state to an absolute file path.
+     */
+    private function resolveUploadedFilePath(mixed $fileState): ?string
+    {
+        if (!$fileState) {
+            return null;
+        }
+
+        while (is_array($fileState)) {
+            if (empty($fileState)) {
+                return null;
+            }
+            $fileState = reset($fileState);
+        }
+
+        if ($fileState instanceof TemporaryUploadedFile) {
+            $path = $fileState->getRealPath();
+            return file_exists($path) ? $path : null;
+        }
+
+        if (is_string($fileState) && !empty($fileState)) {
+            try {
+                $tmpFile = TemporaryUploadedFile::createFromLivewire($fileState);
+                $path = $tmpFile->getRealPath();
+                if (file_exists($path)) {
+                    return $path;
+                }
+            } catch (\Exception) {
+            }
+
+            foreach (['prospect-imports', 'private/livewire-tmp', 'livewire-tmp'] as $dir) {
+                $path = storage_path('app/' . $dir . '/' . $fileState);
+                if (file_exists($path)) {
+                    return $path;
+                }
+            }
+        }
+
+        return null;
     }
 }

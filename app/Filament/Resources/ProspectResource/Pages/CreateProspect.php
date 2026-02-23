@@ -34,33 +34,11 @@ class CreateProspect extends CreateRecord
                 ->icon('heroicon-o-sparkles')
                 ->color('primary')
                 ->action(function () {
-                    $data = $this->data;
+                    $rawData = $this->data;
                     $parsedFields = [];
 
-                    $resolvePath = function ($fileState): ?string {
-                        if (!$fileState)
-                            return null;
-                        while (is_array($fileState)) {
-                            $fileState = reset($fileState);
-                        }
-                        if ($fileState instanceof TemporaryUploadedFile) {
-                            return $fileState->getRealPath();
-                        }
-                        if (is_string($fileState) && !empty($fileState)) {
-                            $path = storage_path('app/prospect-imports/' . $fileState);
-                            if (file_exists($path))
-                                return $path;
-                            foreach (['private/livewire-tmp/', 'livewire-tmp/'] as $dir) {
-                                $path = storage_path('app/' . $dir . $fileState);
-                                if (file_exists($path))
-                                    return $path;
-                            }
-                        }
-                        return null;
-                    };
-
-                    // Parse Pappers PDF
-                    $pappersPath = $resolvePath($data['pappers_pdf'] ?? null);
+                    // --- Parse Pappers PDF ---
+                    $pappersPath = $this->resolveUploadedFilePath($rawData['pappers_pdf'] ?? null);
                     if ($pappersPath) {
                         try {
                             $parsed = (new ParsePappersService())->parse($pappersPath);
@@ -71,8 +49,8 @@ class CreateProspect extends CreateRecord
                         }
                     }
 
-                    // Parse Lighthouse JSON
-                    $lhPath = $resolvePath($data['lighthouse_json'] ?? null);
+                    // --- Parse Lighthouse JSON ---
+                    $lhPath = $this->resolveUploadedFilePath($rawData['lighthouse_json'] ?? null);
                     if ($lhPath) {
                         try {
                             $parsed = (new ParseLighthouseService())->parse($lhPath);
@@ -84,53 +62,12 @@ class CreateProspect extends CreateRecord
                     }
 
                     if (count($parsedFields) > 0) {
-                        // Log every field and its type for debugging
+                        // Ensure all values are JSON-safe before setting them
                         foreach ($parsedFields as $field => $value) {
-                            Log::info("Setting field: {$field}", [
-                                'value' => $value,
-                                'type' => gettype($value),
-                                'json_ok' => json_encode($value) !== false,
-                            ]);
-                        }
-
-                        // Test: can json_encode handle all parsed fields?
-                        $jsonTest = json_encode($parsedFields);
-                        if ($jsonTest === false) {
-                            Log::error('json_encode FAILED on parsed fields', [
-                                'error' => json_last_error_msg(),
-                            ]);
-                        } else {
-                            Log::info('json_encode OK for parsed fields', ['json' => $jsonTest]);
-                        }
-
-                        // Test: can json_encode handle $this->data BEFORE modification?
-                        $dataCopy = $this->data;
-                        // Remove non-serializable file fields for test
-                        unset($dataCopy['pappers_pdf'], $dataCopy['lighthouse_json']);
-                        $jsonTest2 = json_encode($dataCopy);
-                        if ($jsonTest2 === false) {
-                            Log::error('json_encode FAILED on $this->data (sans files)', [
-                                'error' => json_last_error_msg(),
-                            ]);
-                        } else {
-                            Log::info('json_encode OK for $this->data (sans files)');
-                        }
-
-                        // Apply parsed values one by one
-                        foreach ($parsedFields as $field => $value) {
+                            if (is_string($value)) {
+                                $value = mb_convert_encoding($value, 'UTF-8', 'UTF-8');
+                            }
                             $this->data[$field] = $value;
-                        }
-
-                        // Test: can json_encode handle $this->data AFTER modification?
-                        $dataCopy2 = $this->data;
-                        unset($dataCopy2['pappers_pdf'], $dataCopy2['lighthouse_json']);
-                        $jsonTest3 = json_encode($dataCopy2);
-                        if ($jsonTest3 === false) {
-                            Log::error('json_encode FAILED on $this->data AFTER set', [
-                                'error' => json_last_error_msg(),
-                            ]);
-                        } else {
-                            Log::info('json_encode OK for $this->data AFTER set');
                         }
 
                         Notification::make()
@@ -147,5 +84,53 @@ class CreateProspect extends CreateRecord
                     }
                 }),
         ];
+    }
+
+    /**
+     * Resolve a Livewire FileUpload state to an absolute file path.
+     */
+    private function resolveUploadedFilePath(mixed $fileState): ?string
+    {
+        if (!$fileState) {
+            return null;
+        }
+
+        // Unwrap arrays (Livewire nests the value as UUID => TemporaryUploadedFile)
+        while (is_array($fileState)) {
+            if (empty($fileState)) {
+                return null;
+            }
+            $fileState = reset($fileState);
+        }
+
+        // Direct TemporaryUploadedFile object
+        if ($fileState instanceof TemporaryUploadedFile) {
+            $path = $fileState->getRealPath();
+            return file_exists($path) ? $path : null;
+        }
+
+        // String filename fallback
+        if (is_string($fileState) && !empty($fileState)) {
+            // Try creating from Livewire's internal tracking
+            try {
+                $tmpFile = TemporaryUploadedFile::createFromLivewire($fileState);
+                $path = $tmpFile->getRealPath();
+                if (file_exists($path)) {
+                    return $path;
+                }
+            } catch (\Exception) {
+                // Fall through to filesystem search
+            }
+
+            // Search filesystem directly
+            foreach (['prospect-imports', 'private/livewire-tmp', 'livewire-tmp'] as $dir) {
+                $path = storage_path('app/' . $dir . '/' . $fileState);
+                if (file_exists($path)) {
+                    return $path;
+                }
+            }
+        }
+
+        return null;
     }
 }
