@@ -1,25 +1,15 @@
-# CRM - Caddy Configuration
-
-:80 {
+crm.hugodewas.com {
     root * /var/www/crm/public
-
-    # Encode responses
     encode gzip
-
-    # PHP-FPM (includes try_files internally for Laravel routing)
     php_fastcgi unix//run/php/php8.2-fpm.sock
-
-    # Static files
     file_server
 
-    # Security headers
     header {
         X-Content-Type-Options nosniff
         X-Frame-Options DENY
         -Server
     }
 
-    # Logs
     log {
         output file /var/log/caddy/crm.log
     }
