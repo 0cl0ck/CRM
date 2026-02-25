@@ -275,12 +275,10 @@ class ProspectResource extends Resource
                     ->label('Entreprise')
                     ->searchable()
                     ->sortable()
-                    ->weight('bold'),
-
-                Tables\Columns\TextColumn::make('contact_name')
-                    ->label('Contact')
-                    ->searchable()
-                    ->toggleable(),
+                    ->weight('bold')
+                    ->limit(25)
+                    ->tooltip(fn(Prospect $record): string => $record->company_name)
+                    ->description(fn(Prospect $record): ?string => $record->city),
 
                 Tables\Columns\TextColumn::make('status')
                     ->label('Statut')
@@ -289,16 +287,27 @@ class ProspectResource extends Resource
                     ->color(fn(ProspectStatus $state): string => $state->color())
                     ->sortable(),
 
+                Tables\Columns\TextColumn::make('type')
+                    ->label('Type')
+                    ->badge()
+                    ->formatStateUsing(fn(ProspectType $state): string => $state->label())
+                    ->sortable(),
+
+                Tables\Columns\TextColumn::make('budget')
+                    ->label('Budget')
+                    ->badge()
+                    ->formatStateUsing(fn(Budget $state): string => $state->label())
+                    ->color(fn(Budget $state): string => $state->color())
+                    ->sortable(),
+
                 Tables\Columns\TextColumn::make('revenue')
                     ->label('CA')
                     ->money('EUR', locale: 'fr')
-                    ->sortable()
-                    ->toggleable(),
+                    ->sortable(),
 
                 Tables\Columns\TextColumn::make('employees')
                     ->label('Effectif')
-                    ->sortable()
-                    ->toggleable(),
+                    ->sortable(),
 
                 Tables\Columns\TextColumn::make('lh_performance')
                     ->label('Perf. LH')
@@ -310,36 +319,30 @@ class ProspectResource extends Resource
                         $state >= 50 => 'warning',
                         default => 'danger',
                     })
-                    ->sortable()
-                    ->toggleable(),
+                    ->sortable(),
 
                 Tables\Columns\TextColumn::make('source')
                     ->label('Source')
-                    ->formatStateUsing(fn(ProspectSource $state): string => $state->label())
-                    ->toggleable(),
-
-                Tables\Columns\TextColumn::make('type')
-                    ->label('Type')
-                    ->formatStateUsing(fn(ProspectType $state): string => $state->label())
-                    ->toggleable(isToggledHiddenByDefault: true),
-
-                Tables\Columns\TextColumn::make('budget')
-                    ->label('Budget')
                     ->badge()
-                    ->formatStateUsing(fn(Budget $state): string => $state->label())
-                    ->color(fn(Budget $state): string => $state->color())
-                    ->toggleable(),
+                    ->formatStateUsing(fn(ProspectSource $state): string => $state->label())
+                    ->sortable(),
+
+                Tables\Columns\TextColumn::make('next_action_at')
+                    ->label('Action')
+                    ->dateTime('d/m/Y')
+                    ->sortable()
+                    ->color(fn(Prospect $record): string => $record->isOverdue() ? 'danger' : 'gray'),
+
+                Tables\Columns\TextColumn::make('contact_name')
+                    ->label('Contact')
+                    ->searchable()
+                    ->limit(20)
+                    ->toggleable(isToggledHiddenByDefault: true),
 
                 Tables\Columns\TextColumn::make('city')
                     ->label('Ville')
                     ->searchable()
                     ->toggleable(isToggledHiddenByDefault: true),
-
-                Tables\Columns\TextColumn::make('next_action_at')
-                    ->label('Prochaine action')
-                    ->dateTime('d/m/Y')
-                    ->sortable()
-                    ->color(fn(Prospect $record): string => $record->isOverdue() ? 'danger' : 'gray'),
 
                 Tables\Columns\TextColumn::make('created_at')
                     ->label('Créé le')

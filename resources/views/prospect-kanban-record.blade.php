@@ -12,32 +12,54 @@
 @endphp
 
 <div id="{{ $record->getKey() }}" wire:click="recordClicked('{{ $record->getKey() }}', {{ @json_encode($record) }})"
-    class="p-2 rounded-lg border-l-4 {{ $borderColor }} bg-white dark:bg-gray-900 shadow-sm hover:shadow-md transition-shadow cursor-grab active:cursor-grabbing">
+    class="p-3 rounded-lg border-l-4 {{ $borderColor }} bg-white dark:bg-gray-900 shadow-sm hover:shadow-md transition-all cursor-grab active:cursor-grabbing">
     {{-- Company name --}}
-    <p class="font-semibold text-xs text-gray-900 dark:text-white truncate">
+    <p class="font-semibold text-sm text-gray-900 dark:text-white truncate">
         {{ $record->company_name }}
     </p>
 
     {{-- Contact name --}}
     @if($record->contact_name)
-        <p class="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5 truncate">
+        <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5 truncate">
             {{ $record->contact_name }}
         </p>
     @endif
 
-    {{-- Budget badge --}}
-    @if($record->budget)
-        <div class="mt-1">
-            <span class="inline-flex items-center px-1 py-0.5 rounded text-[9px] font-medium
-                    {{ match ($record->budget?->value ?? $record->budget) {
-            'low' => 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300',
-            'mid' => 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300',
-            'high' => 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300',
-            default => 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300',
-        } }}
-                ">
-                {{ $record->budget->label() }}
+    {{-- Info badges row --}}
+    <div class="flex flex-wrap items-center gap-1 mt-2">
+        {{-- Budget badge --}}
+        @if($record->budget)
+                <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium
+                            {{ match ($record->budget?->value ?? $record->budget) {
+                'low' => 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300',
+                'medium' => 'bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300',
+                'high' => 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300',
+                default => 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300',
+            } }}
+                            ">
+                    {{ $record->budget->label() }}
+                </span>
+        @endif
+
+        {{-- Revenue --}}
+        @if($record->revenue)
+            <span
+                class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">
+                {{ number_format($record->revenue, 0, ',', ' ') }} €
             </span>
-        </div>
-    @endif
+        @endif
+
+        {{-- Lighthouse Performance --}}
+        @if($record->lh_performance)
+                <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium
+                            {{ match (true) {
+                $record->lh_performance >= 90 => 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300',
+                $record->lh_performance >= 50 => 'bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300',
+                default => 'bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300',
+            } }}
+                            ">
+                    LH {{ $record->lh_performance }}
+                </span>
+        @endif
+    </div>
 </div>

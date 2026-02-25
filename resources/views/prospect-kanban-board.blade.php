@@ -1,5 +1,5 @@
 <x-filament-panels::page>
-    <div x-data wire:ignore.self class="md:flex overflow-x-hidden gap-2 pb-4" style="width: 100%;">
+    <div x-data wire:ignore.self class="flex overflow-x-auto gap-3 pb-4" style="width: 100%;">
         @foreach($statuses as $status)
             @include(static::$statusView)
         @endforeach
